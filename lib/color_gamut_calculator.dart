@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:color_gamut/color_spaces.dart';
+import 'package:color_gamut/functions.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
@@ -24,11 +25,14 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
   TextEditingController _bxController = TextEditingController();
   TextEditingController _byController = TextEditingController();
 
-  Map<String, dynamic> colorSpaceOverlapArea = {};
-  final String lambdaUrl =
-      "https://95sn67gfzb.execute-api.ap-northeast-2.amazonaws.com";
+  Map<String, dynamic> colorSpaceOverlapAreaXY = {};
+  Map<String, dynamic> colorSpaceOverlapAreaUV = {};
 
-  Future<void> callLambdaFunction(List<List<double>> polygon) async {
+  final String lambdaUrl =
+      "https://nr0o1d5a45.execute-api.ap-northeast-2.amazonaws.com/color_space_v2";
+
+  Future<void> callLambdaFunction(
+      List<List<double>> polygon, List<List<double>> polygonuv) async {
     http.Response response = await http.post(
       Uri.parse(lambdaUrl),
       headers: <String, String>{
@@ -36,18 +40,24 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
       },
       body: jsonEncode(<String, dynamic>{
         'polygon1_coords': polygon,
+        'polygon2_coords': polygonuv
       }),
     );
 
     if (response.statusCode == 200) {
-      Map<String, dynamic> lambdaResponse = jsonDecode(response.body);
+      Map<String, dynamic> lambdaResponseXY =
+          jsonDecode(response.body)['ratiosXY'];
+      Map<String, dynamic> lambdaResponseUV =
+          jsonDecode(response.body)['ratiosUV'];
+
       if (response.statusCode == 200) {
-        // Map<String, dynamic> bodyResponse = jsonDecode(lambdaResponse['body']);
+        // Map<String, dynamic> bodyResponse = jsonDecode(lambdaResponseXY['body']);
         setState(() {
-          colorSpaceOverlapArea = lambdaResponse;
+          colorSpaceOverlapAreaXY = lambdaResponseXY;
+          colorSpaceOverlapAreaUV = lambdaResponseUV;
         });
       } else {
-        // print('Lambda function returned error: ${lambdaResponse['statusCode']}');
+        // print('Lambda function returned error: ${lambdaResponseXY['statusCode']}');
       }
     } else {
       print('Failed to call Lambda function: ${response.statusCode}');
@@ -57,7 +67,7 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
   // colorSpaceOverlapArea를 저장하는 함수
   Future<void> _saveOverlapArea() async {
     final SharedPreferences prefs = await _prefs;
-    String jsonString = jsonEncode(colorSpaceOverlapArea);
+    String jsonString = jsonEncode(colorSpaceOverlapAreaXY);
     prefs.setString('colorSpaceOverlapArea', jsonString);
   }
 
@@ -68,7 +78,26 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
     if (jsonString != null) {
       Map<String, dynamic> loadedMap = jsonDecode(jsonString);
       setState(() {
-        colorSpaceOverlapArea = loadedMap;
+        colorSpaceOverlapAreaXY = loadedMap;
+      });
+    }
+  }
+
+  // colorSpaceOverlapAreaUV를 저장하는 함수
+  Future<void> _saveOverlapAreaUV() async {
+    final SharedPreferences prefs = await _prefs;
+    String jsonString = jsonEncode(colorSpaceOverlapAreaUV);
+    prefs.setString('colorSpaceOverlapAreaUV', jsonString);
+  }
+
+  // colorSpaceOverlapAreaUV를 불러오는 함수
+  Future<void> _loadOverlapAreaUV() async {
+    final SharedPreferences prefs = await _prefs;
+    String? jsonString = prefs.getString('colorSpaceOverlapAreaUV');
+    if (jsonString != null) {
+      Map<String, dynamic> loadedMap = jsonDecode(jsonString);
+      setState(() {
+        colorSpaceOverlapAreaUV = loadedMap;
       });
     }
   }
@@ -115,6 +144,9 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
       setState(() {});
     });
     _loadOverlapArea().then((_) {
+      setState(() {});
+    });
+    _loadOverlapAreaUV().then((_) {
       setState(() {});
     });
   }
@@ -210,16 +242,20 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
                 double bx = double.parse(_bxController.text);
                 double by = double.parse(_byController.text);
 
-                List<List<double>> userInputPolygon = [
+                List<List<double>> userInputPolygonXY = [
                   [rx, ry],
                   [gx, gy],
                   [bx, by],
                   [rx, ry] // Close the polygon
                 ];
 
-                await callLambdaFunction(userInputPolygon);
+                List<List<double>> userInputPolygonUV =
+                    convertCIExyToCIEuv(userInputPolygonXY);
+                await callLambdaFunction(
+                    userInputPolygonXY, userInputPolygonUV);
                 await _saveInputs();
                 await _saveOverlapArea();
+                await _saveOverlapAreaUV();
               },
               child: const Text(
                 '색재현율 계산',
@@ -233,25 +269,99 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
                   '<Result>',
                   style: TextStyle(fontSize: 18),
                 ),
+                SizedBox(
+                  height: 8,
+                ),
                 FutureBuilder(
                     future: _loadOverlapArea(),
                     builder: (context, snapshot) {
-                      return ListView.builder(
-                        physics: const NeverScrollableScrollPhysics(),
-                        shrinkWrap:
-                            true, // To avoid unbounded height issues in the ListView
-                        itemCount: colorSpaceOverlapArea.length,
-                        itemBuilder: (context, index) {
-                          String colorSpace =
-                              colorSpaceOverlapArea.keys.elementAt(index);
-                          double? overlapArea =
-                              colorSpaceOverlapArea[colorSpace]?.toDouble();
-                          return ListTile(
-                            title: Text(colorSpace),
-                            trailing: Text(overlapArea!.toStringAsFixed(2) +
-                                ' %'), // Display area with 2 decimal places
-                          );
-                        },
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Space',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      decoration: TextDecoration.underline),
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  'CIE1931(xy)',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      decoration: TextDecoration.underline),
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  'CIE1976(u\'v\')',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      decoration: TextDecoration.underline),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(
+                              height:
+                                  10), // Add some spacing between column headers and data rows
+                          ListView.builder(
+                            physics: const NeverScrollableScrollPhysics(),
+                            shrinkWrap: true,
+                            itemCount: colorSpaceOverlapAreaXY.length,
+                            itemBuilder: (context, index) {
+                              String colorSpace =
+                                  colorSpaceOverlapAreaXY.keys.elementAt(index);
+                              double? overlapAreaXY =
+                                  colorSpaceOverlapAreaXY[colorSpace]
+                                      ?.toDouble();
+                              double? overlapAreaUV =
+                                  colorSpaceOverlapAreaUV[colorSpace]
+                                      ?.toDouble();
+
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 8.0),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        colorSpace,
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        (overlapAreaXY?.toStringAsFixed(2) ??
+                                                'N/A') +
+                                            ' %',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        (overlapAreaUV?.toStringAsFixed(2) ??
+                                                'N/A') +
+                                            ' %',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       );
                     }),
               ],
