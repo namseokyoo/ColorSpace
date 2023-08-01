@@ -282,7 +282,7 @@ class _ColorSpacePageState extends State<ColorSpacePage> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Space',
+                                  'Color Space',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                       fontWeight: FontWeight.bold,
