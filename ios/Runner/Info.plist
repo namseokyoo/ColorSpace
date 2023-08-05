@@ -7,8 +7,6 @@
         <string>https</string>
         <string>http</string>
     </array>
-    <key>GADApplicationIdentifier</key>
-    <string>ca-app-pub-2310830332665506~4182820102</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
